@@ -39,3 +39,15 @@
   - [chapter5-8](https://github.com/rust-web-app-book/rusty-book-manager/tree/chapter5-8)：5.8節の終わり時点
 - [chapter6](https://github.com/rust-web-app-book/rusty-book-manager/tree/chapter6)：6章の終わり時点
 - [chapter7](https://github.com/rust-web-app-book/rusty-book-manager/tree/chapter7)：7章の終わり時点
+
+## 書籍との差分
+
+### errata
+
+書籍の正誤表は[errata](https://github.com/rust-web-app-book/errata)にて公開しております。あわせてご覧ください。
+
+### Rustのバージョンについて
+
+sqlxの特定のバージョンで一部コンパイルエラーが発生することを確認しております。[こちらのIssue](https://github.com/rust-web-app-book/rusty-book-manager/issues/9)にて事象が報告されています。このコンパイルエラーは、本書にて`rust-toolchain.toml`に指定したRust 1.78.0で発生してしまうことがわかっています。
+
+そのためこのリポジトリでは、Rustのバージョンをstable 1.84.0に引き上げる対応を行なっております。なお書籍を読み進められる際も、Rust stable 1.84.0でそのまま問題ありません。
