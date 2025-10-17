@@ -42,7 +42,7 @@ impl AuthRepository for AuthRepositoryImpl {
             UserItem,
             r#"
                 SELECT user_id, password_hash FROM users
-                WHERE email = ?; // ★★★ 修正: $1 を ? に変更 ★★★
+                WHERE email = ?;
             "#,
             email
         )
