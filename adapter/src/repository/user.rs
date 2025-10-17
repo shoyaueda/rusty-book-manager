@@ -30,7 +30,7 @@ impl UserRepository for UserRepositoryImpl {
                 u.updated_at
                 FROM users AS u
                 INNER JOIN roles AS r USING(role_id)
-                WHERE u.user_id = $1
+                WHERE u.user_id = ? /* ★修正: $1 を ? に置換 */
             "#,
             current_user_id as _
         )
@@ -76,7 +76,7 @@ impl UserRepository for UserRepositoryImpl {
         let res = sqlx::query!(
             r#"
                 INSERT INTO users(user_id, name, email, password_hash, role_id)
-                SELECT $1, $2, $3, $4, role_id FROM roles WHERE name = $5;
+                SELECT ?, ?, ?, ?, role_id FROM roles WHERE name = ?; /* ★修正: $1-$5 を ?, ?, ?, ?, ? に置換 */
             "#,
             user_id as _,
             event.name,
@@ -104,7 +104,7 @@ impl UserRepository for UserRepositoryImpl {
         let mut tx = self.db.begin().await?;
         let original_password_hash = sqlx::query!(
             r#"
-                SELECT password_hash FROM users WHERE user_id = $1;
+                SELECT password_hash FROM users WHERE user_id = ?; /* ★修正: $1 を ? に置換 */
             "#,
             event.user_id as _
         )
@@ -118,7 +118,7 @@ impl UserRepository for UserRepositoryImpl {
         let new_password_hash = hash_password(&event.new_password)?;
         sqlx::query!(
             r#"
-                UPDATE users SET password_hash = $2 WHERE user_id = $1;
+                UPDATE users SET password_hash = ? WHERE user_id = ?; /* ★修正: $2, $1 を ?, ? に置換 */
             "#,
             event.user_id as _,
             new_password_hash,
@@ -135,9 +135,9 @@ impl UserRepository for UserRepositoryImpl {
             r#"
                 UPDATE users
                 SET role_id = (
-                   SELECT role_id FROM roles WHERE name = $2
+                   SELECT role_id FROM roles WHERE name = ? /* ★修正: $2 を ? に置換 */
                 )
-                WHERE user_id = $1
+                WHERE user_id = ? /* ★修正: $1 を ? に置換 */
             "#,
             event.user_id as _,
             event.role.as_ref()
@@ -155,7 +155,7 @@ impl UserRepository for UserRepositoryImpl {
         let res = sqlx::query!(
             r#"
                 DELETE FROM users
-                WHERE user_id = $1
+                WHERE user_id = ? /* ★修正: $1 を ? に置換 */
             "#,
             event.user_id as _
         )
@@ -198,8 +198,9 @@ mod tests {
     };
     use std::str::FromStr;
 
+    // ★修正: sqlx::PgPool を sqlx::MySqlPool に置換 ★
     #[sqlx::test(fixtures("common"))]
-    async fn test_find_current_user(pool: sqlx::PgPool) -> anyhow::Result<()> {
+    async fn test_find_current_user(pool: sqlx::MySqlPool) -> anyhow::Result<()> {
         let repo = UserRepositoryImpl::new(ConnectionPool::new(pool.clone()));
         let current_user_id = UserId::from_str("5b4c96ac-316a-4bee-8e69-cac5eb84ff4c")?;
         let me = repo.find_current_user(current_user_id).await?;
@@ -217,8 +218,9 @@ mod tests {
         Ok(())
     }
 
+    // ★修正: sqlx::PgPool を sqlx::MySqlPool に置換 ★
     #[sqlx::test(fixtures("common"))]
-    async fn test_users(pool: sqlx::PgPool) -> anyhow::Result<()> {
+    async fn test_users(pool: sqlx::MySqlPool) -> anyhow::Result<()> {
         let repo = UserRepositoryImpl::new(ConnectionPool::new(pool.clone()));
 
         // create

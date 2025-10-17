@@ -4,10 +4,11 @@ default_to_workspace = false
 [env]
 HOST = "0.0.0.0"
 PORT = 8080
-DATABASE_USERNAME = "app"
-DATABASE_PASSWORD = "passwd"
+DATABASE_USERNAME = "admin"
+DATABASE_PASSWORD = "Jegrap-givsuf-5muzti"
 DATABASE_NAME = "app"
-DATABASE_PORT_OUTER = 5432
+DATABASE_HOST_RDS = "sample-db.c5uqgeiqcz3r.ap-northeast-1.rds.amazonaws.com"
+DATABASE_PORT_OUTER = 3306
 DATABASE_PORT_INNER = 5432
 REDIS_PORT_OUTER = 6379
 REDIS_PORT_INNER = 6379
@@ -20,35 +21,41 @@ DATABASE_PORT = "${DATABASE_PORT_INNER}"
 DATABASE_URL = "postgresql://${DATABASE_HOST}:${DATABASE_PORT}/${DATABASE_NAME}?user=${DATABASE_USERNAME}&password=${DATABASE_PASSWORD}"
 REDIS_HOST = "redis"
 REDIS_PORT = "${REDIS_PORT_INNER}"
-JAEGER_HOST = "jaeger"
-JAEGER_PORT = 6831
+
+# ★★★ 新規追加：AWS RDSに接続するための設定 ★★★
+[tasks.set-env-aws.env]
+DATABASE_HOST = "${DATABASE_HOST_RDS}" # RDSエンドポイントを使用
+DATABASE_PORT = "${DATABASE_PORT_OUTER}" # 外部ポートを使用
+# データベースがMySQLの場合は "mysql://"、PostgreSQLの場合は "postgresql://" を維持
+DATABASE_URL = "mysql://${DATABASE_HOST}:${DATABASE_PORT}/${DATABASE_NAME}?user=${DATABASE_USERNAME}&password=${DATABASE_PASSWORD}"
+REDIS_HOST = "localhost" # RedisはEC2上のDocker Composeコンテナを参照
+REDIS_PORT = "${REDIS_PORT_OUTER}"
 
 # Docker Compose外からDB等にアクセスする際の接続情報
 [tasks.set-env-local.env]
-DATABASE_HOST = "localhost"
-DATABASE_PORT = "${DATABASE_PORT_OUTER}"
-DATABASE_URL = "postgresql://${DATABASE_HOST}:${DATABASE_PORT}/${DATABASE_NAME}?user=${DATABASE_USERNAME}&password=${DATABASE_PASSWORD}"
+DATABASE_HOST = "${DATABASE_HOST_RDS}" # ★★★ 修正: localhost -> RDSホスト ★★★
+DATABASE_PORT = "${DATABASE_PORT_OUTER}" # ★★★ 修正: 3306を使う ★★★
+# ★★★ 修正: プロトコルもmysqlに合わせる ★★★
+DATABASE_URL = "mysql://${DATABASE_HOST}:${DATABASE_PORT}/${DATABASE_NAME}?user=${DATABASE_USERNAME}&password=${DATABASE_PASSWORD}" 
 REDIS_HOST = "localhost"
 REDIS_PORT = "${REDIS_PORT_OUTER}"
-JAEGER_HOST = "localhost"
-JAEGER_PORT = 6831
-
 
 [tasks.before-build]
 run_task = [
-    { name = [
-        "compose-up-db",
-        "migrate",
-        "compose-up-redis",
-    ] },
+  { name = [
+    "compose-up-redis",
+  ] },
 ]
 
 [tasks.compose-build-app]
-extend = "set-env-local"
-command = "docker"
+extend = "set-env-aws"
+command = "docker-compose"
 args = [
-  "compose", "build", "app",
-  "--build-arg", "BUILDKIT_INLINE_CACHE=1", "${@}"
+  "build",
+  "app",
+  "--build-arg",
+  "BUILDKIT_INLINE_CACHE=1",
+  "${@}",
 ]
 
 [tasks.run]
@@ -58,16 +65,17 @@ command = "cargo"
 args = ["run", "${@}"]
 
 [tasks.run-in-docker]
-extend = "set-env-docker"
-dependencies = ["before-build", "compose-build-app"]
-command = "docker"
-args = ["compose", "up", "-d", "app"]
+extend = "set-env-aws" # ★★★ set-env-docker から変更 ★★★
+# DB関連の依存関係を削除
+dependencies = ["compose-build-app", "compose-up-redis"] 
+command = "docker-compose"
+args = ["up", "-d", "app", "redis"] # ★★★ redisも起動するように明記 ★★★
 
 [tasks.logs]
 extend = "set-env-docker"
 dependencies = ["before-build"]
-command = "docker"
-args = ["compose", "logs", "${@}"]
+command = "docker-compose"
+args = ["logs", "${@}"]
 
 [tasks.build]
 extend = "set-env-local"
@@ -103,12 +111,17 @@ args = ["clippy", "--all", "--all-targets", "${@}"]
 [tasks.test]
 extend = "set-env-local"
 install_crate = { crate_name = "cargo-nextest", binary = "cargo", test_arg = [
-  "nextest", "--help",
+  "nextest",
+  "--help",
 ] }
 command = "cargo"
 args = [
-  "nextest", "run", "--workspace",
-  "--status-level", "all", "--test-threads=1",
+  "nextest",
+  "run",
+  "--workspace",
+  "--status-level",
+  "all",
+  "--test-threads=1",
 ]
 
 [tasks.clippy-ci]
@@ -144,21 +157,35 @@ args = ["${@}", "--source", "adapter/migrations"]
 extend = "set-env-local"
 command = "docker"
 args = [
-  "run", "-it", "--rm",
-  "--network", "host",
-  "-v", "${PWD}:/work",
-  "postgres:15", "psql", "${DATABASE_URL}", "${@}"
+  "run",
+  "-it",
+  "--rm",
+  "--network",
+  "host",
+  "-v",
+  "${PWD}:/work",
+  "postgres:15",
+  "psql",
+  "${DATABASE_URL}",
+  "${@}",
 ]
 
 [tasks.initial-setup]
 extend = "set-env-local"
 command = "docker"
 args = [
-  "run", "-it", "--rm",
-  "--network", "host",
-  "-v", "${PWD}:/work",
-  "postgres:15", "psql", "${DATABASE_URL}",
-  "-f", "/work/data/initial_setup.sql"
+  "run",
+  "-it",
+  "--rm",
+  "--network",
+  "host",
+  "-v",
+  "${PWD}:/work",
+  "postgres:15",
+  "psql",
+  "${DATABASE_URL}",
+  "-f",
+  "/work/data/initial_setup.sql",
 ]
 
 
@@ -166,28 +193,23 @@ args = [
 
 [tasks.compose]
 extend = "set-env-docker"
-command = "docker"
-args = ["compose", "${@}"]
-
-[tasks.compose-up-db]
-extend = "set-env-docker"
-command = "docker"
-args = ["compose", "up", "-d", "postgres"]
+command = "docker-compose"
+args = ["${@}"]
 
 [tasks.compose-up-redis]
 extend = "set-env-docker"
-command = "docker"
-args = ["compose", "up", "-d", "redis"]
+command = "docker-compose"
+args = ["up", "-d", "redis"]
 
 [tasks.compose-down]
 extend = "set-env-docker"
-command = "docker"
-args = ["compose", "down"]
+command = "docker-compose"
+args = ["down"]
 
 [tasks.compose-remove]
 extend = "set-env-docker"
-command = "docker"
-args = ["compose", "down", "-v"]
+command = "docker-compose"
+args = ["down", "-v"]
 
 
 [tasks.create-hash]
@@ -203,3 +225,4 @@ fn main() {
     println!("{}", hashed);
 }
 '''
+

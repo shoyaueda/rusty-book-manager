@@ -16,3 +16,7 @@ COPY --from=builder ./app/target/release/app ./target/release/app
 ENV PORT 8080
 EXPOSE $PORT
 ENTRYPOINT ["./target/release/app"]
+
+# Dockerfile の末尾や、RUN cargo build --release の直前など、どこでも良い
+# 以下の行を追加:
+# ADDED_FOR_CACHE_BUSTING_1

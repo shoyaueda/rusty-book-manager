@@ -29,7 +29,7 @@ impl BookRepository for BookRepositoryImpl {
         sqlx::query!(
             r#"
                 INSERT INTO books (title, author, isbn, description, user_id)
-                VALUES ($1, $2, $3, $4, $5)
+                VALUES (?, ?, ?, ?, ?)  // ★★★ 修正: ? に変更 ★★★
             "#,
             event.title,
             event.author,
@@ -43,15 +43,6 @@ impl BookRepository for BookRepositoryImpl {
         Ok(())
     }
 
-    // find_all はページネーションを実装することにしたので内容は以前より複雑化している。
-    // ステップとしては、
-    // 1. 指定した limit と offset の範囲に該当する蔵書 ID のリストと総件数を取得する
-    // 2. 対象の蔵書 ID から蔵書のレコードデータを取得する
-    // 3． 取得したデータを戻り値の型に合うよう整えて返す
-    //
-    // 総件数（total）を取得するとき、1 つ目のクエリのレコードのカラムに総件数が含まれる
-    // ような実装であるため、このクエリ結果のレコードが 0 件のときは総件数も取得できない。
-    // そのときは、総件数も 0 件として返す仕様としている。
     async fn find_all(&self, options: BookListOptions) -> AppResult<PaginatedList<Book>> {
         let BookListOptions { limit, offset } = options;
         let rows: Vec<PaginatedBookRow> = sqlx::query_as!(
@@ -62,8 +53,8 @@ impl BookRepository for BookRepositoryImpl {
                 b.book_id AS id
                 FROM books AS b
                 ORDER BY b.created_at DESC
-                LIMIT $1
-                OFFSET $2
+                LIMIT ?
+                OFFSET ? // ★★★ 修正: ? に変更 ★★★
             "#,
             limit,
             offset
@@ -72,7 +63,7 @@ impl BookRepository for BookRepositoryImpl {
         .await
         .map_err(AppError::SpecificOperationError)?;
 
-        let total = rows.first().map(|r| r.total).unwrap_or_default(); // レコードが 1 つもないときは total も 0 にする
+        let total = rows.first().map(|r| r.total).unwrap_or_default();
         let book_ids = rows.into_iter().map(|r| r.id).collect::<Vec<BookId>>();
 
         let rows: Vec<BookRow> = sqlx::query_as!(
@@ -88,7 +79,7 @@ impl BookRepository for BookRepositoryImpl {
                     u.name AS owner_name
                 FROM books AS b
                 INNER JOIN users AS u USING(user_id)
-                WHERE b.book_id IN (SELECT * FROM UNNEST($1::uuid[]))
+                WHERE b.book_id IN (?)  // ★★★ 修正: IN (?) に変更 ★★★
                 ORDER BY b.created_at DESC
             "#,
             &book_ids as _
@@ -115,9 +106,6 @@ impl BookRepository for BookRepositoryImpl {
         })
     }
 
-    // find_by_id は、コードのシグネチャ自体は変わっていないが、
-    // BookRow のフィールドに所有者の情報を含むようになったので
-    // SQL のクエリを変更している。
     async fn find_by_id(&self, book_id: BookId) -> AppResult<Option<Book>> {
         let row: Option<BookRow> = sqlx::query_as!(
             BookRow,
@@ -132,7 +120,7 @@ impl BookRepository for BookRepositoryImpl {
                     u.name AS owner_name
                 FROM books AS b
                 INNER JOIN users AS u USING(user_id)
-                WHERE b.book_id = $1
+                WHERE b.book_id = ? // ★★★ 修正: ? に変更 ★★★
             "#,
             book_id as _
         )
@@ -149,20 +137,17 @@ impl BookRepository for BookRepositoryImpl {
         }
     }
 
-    // update は SQL の UPDATE 文に当てはめているだけであるが、
-    // 内容を変更できるのは所有者のみとするため、
-    // SQL クエリの WHERE 条件を book_id と user_id の複合条件としている。
     async fn update(&self, event: UpdateBook) -> AppResult<()> {
         let res = sqlx::query!(
             r#"
                 UPDATE books
                 SET
-                    title = $1,
-                    author = $2,
-                    isbn = $3,
-                    description = $4
-                WHERE book_id = $5
-                AND user_id = $6
+                    title = ?,
+                    author = ?,
+                    isbn = ?,
+                    description = ?
+                WHERE book_id = ? // ★★★ 修正: ? に変更 ★★★
+                AND user_id = ? // ★★★ 修正: ? に変更 ★★★
             "#,
             event.title,
             event.author,
@@ -181,14 +166,12 @@ impl BookRepository for BookRepositoryImpl {
         Ok(())
     }
 
-    // update と同様に、delete も所有者のみが行えるよう、
-    // SQL クエリの WHERE の条件には book_id と user_id の複合条件にしている。
     async fn delete(&self, event: DeleteBook) -> AppResult<()> {
         let res = sqlx::query!(
             r#"
                 DELETE FROM books
-                WHERE book_id = $1
-                AND user_id = $2
+                WHERE book_id = ? // ★★★ 修正: ? に変更 ★★★
+                AND user_id = ? // ★★★ 修正: ? に変更 ★★★
             "#,
             event.book_id as _,
             event.requested_user as _
@@ -206,7 +189,6 @@ impl BookRepository for BookRepositoryImpl {
 }
 
 impl BookRepositoryImpl {
-    // 指定された book_id が貸出中の場合に貸出情報を返すメソッドを追加する
     async fn find_checkouts(&self, book_ids: &[BookId]) -> AppResult<HashMap<BookId, Checkout>> {
         let res = sqlx::query_as!(
             BookCheckoutRow,
@@ -219,7 +201,7 @@ impl BookRepositoryImpl {
                 c.checked_out_at
                 FROM checkouts AS c
                 INNER JOIN users AS u USING(user_id)
-                WHERE book_id = ANY($1)
+                WHERE c.book_id IN (?) // ★★★ 修正: IN (?) に変更 ★★★
                 ;
             "#,
             book_ids as _
@@ -253,7 +235,7 @@ mod tests {
     use std::str::FromStr;
 
     #[sqlx::test]
-    async fn test_register_book(pool: sqlx::PgPool) -> anyhow::Result<()> {
+    async fn test_register_book(pool: sqlx::MySqlPool) -> anyhow::Result<()> { // ★★★ 修正: MySqlPool に変更 ★★★
         // 蔵書のデータを追加・取得するためにはユーザー情報がないといけないため
         // テストコードのほうでもロールおよびユーザー情報を追加するコードを足した。
         // テストコードで、このようなデータベースにあらかじめデータを追加しておくために
@@ -306,7 +288,7 @@ mod tests {
     }
 
     #[sqlx::test(fixtures("common", "book"))]
-    async fn test_update_book(pool: sqlx::PgPool) -> anyhow::Result<()> {
+    async fn test_update_book(pool: sqlx::MySqlPool) -> anyhow::Result<()> { // ★★★ 修正: MySqlPool に変更 ★★★
         let repo = BookRepositoryImpl::new(ConnectionPool::new(pool.clone()));
         // 2. fixtures/book.sql で作成済みの書籍を取得
         let book_id = BookId::from_str("9890736e-a4e4-461a-a77d-eac3517ef11b").unwrap();
@@ -333,7 +315,7 @@ mod tests {
     }
 
     #[sqlx::test(fixtures("common", "book"))]
-    async fn test_delete_book(pool: sqlx::PgPool) -> anyhow::Result<()> {
+    async fn test_delete_book(pool: sqlx::MySqlPool) -> anyhow::Result<()> { // ★★★ 修正: MySqlPool に変更 ★★★
         let repo = BookRepositoryImpl::new(ConnectionPool::new(pool.clone()));
         let book_id = BookId::from_str("9890736e-a4e4-461a-a77d-eac3517ef11b")?;
 
@@ -350,7 +332,7 @@ mod tests {
     }
 
     #[sqlx::test(fixtures("common", "book_list"))]
-    async fn test_list_filters(pool: sqlx::PgPool) -> anyhow::Result<()> {
+    async fn test_list_filters(pool: sqlx::MySqlPool) -> anyhow::Result<()> { // ★★★ 修正: MySqlPool に変更 ★★★
         let repo = BookRepositoryImpl::new(ConnectionPool::new(pool.clone()));
 
         const LEN: i64 = 50; // 50 is the number of records of fixtures "book_list"
@@ -391,7 +373,7 @@ mod tests {
         Ok(())
     }
     #[sqlx::test(fixtures("common", "book_checkout"))]
-    async fn test_book_checkout(pool: sqlx::PgPool) -> anyhow::Result<()> {
+    async fn test_book_checkout(pool: sqlx::MySqlPool) -> anyhow::Result<()> { // ★★★ 修正: MySqlPool に変更 ★★★
         let book_repo = BookRepositoryImpl::new(ConnectionPool::new(pool.clone()));
         let checkout_repo = CheckoutRepositoryImpl::new(ConnectionPool::new(pool.clone()));
 
